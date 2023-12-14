@@ -1,6 +1,10 @@
 import requests
 from bs4 import BeautifulSoup
 import os
+import concurrent.futures
+
+visited_urls = set()
+processed_links = set()
 
 def get_links(url, domain):
     # Send a GET request to the URL
@@ -21,7 +25,9 @@ def get_links(url, domain):
             if 'href' in link.attrs:
                 href = link['href']
                 if href.startswith('http') or href.startswith('https'):
-                    webpage_links.append(href)
+                    if href not in visited_urls:
+                        visited_urls.add(href)
+                        webpage_links.append(href)
                 else:
                     other_links.append(domain + href)
         
@@ -33,36 +39,41 @@ def get_links(url, domain):
         print('Failed to retrieve data from the URL.')
 
 
-def get_content(webpage_links):
-    # Create the content folder if it doesn't exist
-    if not os.path.exists('content'):
-        os.makedirs('content')
+def get_content(link):
+    response = requests.get(link)
+    if response.status_code == 200:
+        # Normalize the URL to use as the file name
+        file_name = os.path.basename(link)
+        file_name = file_name.replace('/', '_')
+        file_name = file_name.replace(':', '_')
+        file_name = file_name.replace('?', '_')
+        file_name = file_name.replace('=', '_')
+        file_name = file_name.replace('&', '_')
+        file_name = file_name.replace('.', '_')
+        file_name = file_name + '.txt'
 
-    # Get the content of each webpage link
-    webpage_content = {}
-    for link in webpage_links:
-        response = requests.get(link)
-        if response.status_code == 200:
-            webpage_content[link] = response.content
-            # Normalize the URL to use as the file name
-            file_name = os.path.basename(link)
-            file_name = file_name.replace('/', '_')
-            file_name = file_name.replace(':', '_')
-            file_name = file_name.replace('?', '_')
-            file_name = file_name.replace('=', '_')
-            file_name = file_name.replace('&', '_')
-            file_name = file_name.replace('.', '_')
-            file_name = file_name + '.txt'
-            # Write the content to a text file in the content folder
-            with open(os.path.join('content', file_name), 'wb') as file:
-                file.write(response.content)
-        else:
-            print(f'Failed to retrieve data from {link}')
+        # Create the content folder if it doesn't exist
+        if not os.path.exists('content'):
+            os.makedirs('content')
+        # Write the content to a text file in the content folder
+        with open(os.path.join('content', file_name), 'wb') as file:
+            file.write(response.content)
+    else:
+        print(f'Failed to retrieve data from {link}')
 
-    #print(webpage_content)
+
+def process_links(url, domain):
+    webpage_links = get_links(url, domain)
+    if webpage_links:
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            executor.map(get_content, webpage_links)
+        for link in webpage_links:
+            process_links(link, domain)
+            processed_links.add(link)
+
 
 # Example usage
-url = 'https://pypi.org/project/project-generator/'
-webpage_links = get_links(url, "https://pypi.org")
-
-get_content(webpage_links)
+url = 'https://retool.com/'
+domain = "https://retool.com"
+visited_urls.add(url)
+process_links(url, domain)
